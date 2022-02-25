@@ -35,7 +35,7 @@ void Epoll::epoll_add(SP_Channel request, int timeout) {
 
     if(epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
         perror("epoll_add failed!");
-        fdChan_[fd].reset();    //在add之前fd会与Channel建立映射
+        fdChan_[fd].reset();    //在add之前fd会与Channel建立映射, 
     }
 }
 
@@ -89,19 +89,23 @@ std::vector<SP_Channel> Epoll::poll() {
                 perror("activeChannel is invaid!");
             }
         }
-
     }
     return activeChannels;
 }
 
 // 定时器相关, 在Timer中实现，由epoll调用
 void Epoll::handleExpired() {
-    //timerManager_.handleExpiredEvent();
+    timerManager_.handleExpiredEvent();
 }
 
-//底层在Timer中实现
-void Epoll::addTimer(SP_Channel require, int timeout) {
-
+//底层在Timer中实现, 只有connfdChannel会添加定时器
+void Epoll::addTimer(SP_Channel request, int timeout) {
+    SP_HttpData t = request->getHolder();
+    if(t) {
+        timerManager_.addTimer(t, timeout);
+    } else {
+        perror("timer add failed!");
+    }
 }
 
 

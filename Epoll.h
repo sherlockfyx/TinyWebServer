@@ -14,9 +14,11 @@
 
 //  一个事件循环会创建一个 Epoll, 监听该循环下所有的Channel
 
+//  EventLoop会调用Epoll的函数对CHannel进行增删改
+
 //  HttpData对象中会有一个 connfdChannel, Channel包含(accept, pwakeup, connfd)
 
-//  含有一个定时器, 管理过期的连接
+//  含有一个定时器管理员, 管理定时器相关操作
 class Epoll {
 public:
     Epoll();
@@ -39,16 +41,14 @@ public:
 
     void handleExpired();   //处理过期事件, 具体实现在timerManager中
 
-
-
 private:
     int epollFd_;
 
     std::vector<epoll_event> eEvents_; 
 
-    std::unordered_map<int, SP_Channel> fdChan_;
+    std::unordered_map<int, SP_Channel> fdChan_;    //通过fd找到对应监听的Channel
 
-    std::unordered_map<int, SP_HttpData> fdHttp_;
+    std::unordered_map<int, SP_HttpData> fdHttp_;   //找到HttpData(由Server创建)
 
-    TimerManager timerManager_;
+    TimerManager timerManager_; //管理Node
 };
