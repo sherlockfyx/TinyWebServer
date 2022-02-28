@@ -11,7 +11,7 @@ class CountDownLatch: noncopyable {
 public: 
     explicit CountDownLatch(int count);
 
-    ~CountDownLatch();
+    ~CountDownLatch() = default;
 
     void wait();
 

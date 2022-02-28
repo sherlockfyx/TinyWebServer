@@ -21,9 +21,9 @@ public:
     void setFd(int fd);
 
     //connfdChannel
-    void setHolder(SP_HttpData holder) { holder_ = holder; }
+    void setHolder(SP_HttpData holder) { holder_ = holder; }    //设置上级
 
-    SP_HttpData getHolder() { return holder_.lock(); }
+    SP_HttpData getHolder() { return holder_.lock(); }  //获取shared_ptr上级  
 
 public:
 
@@ -78,7 +78,7 @@ public:
 
     void setRevents(uint32_t ev) { revents_ = ev; } //返回
 
-    uint32_t getEvents() { return events_; }        //获取注册事件
+    uint32_t& getEvents() { return events_; }        //获取注册事件
 
     uint32_t getLastEvents() { return lastEvents_; }
 
@@ -100,14 +100,14 @@ private:
     //  acceptChannel 的持有者是 Server,
     //wakeupfdChannel 的持有者是 EventLoop
 
-    //  这里使用weak_ptr是因为 Httpdata 包含 connfdChannel, 会用shared_ptr指向connfdChannel
+    //  这里使用weak_ptr是因为 Httpdata 包含 connfdChannel(由HttpData创建), 会用shared_ptr指向connfdChannel
     //  connfdChannel用weak_ptr指向自己的上级
-    WP_HttpData holder_;    
+    WP_HttpData holder_; 
     
 
     //处理对应事件的回调函数
     CallBack readHandler_;
     CallBack writeHandler_;
-    CallBack errorHandler_;     // ???
+    CallBack errorHandler_;     // ? ? ?
     CallBack connHandler_;
 };

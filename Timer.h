@@ -10,7 +10,8 @@
 
 #include "config.h"
 
-//定时器节点, 对HttpData进行定时管理
+//  定时器节点, 对HttpData(connfdChannel)进行定时管理, 用shared_ptr
+//  HttpData由Server创建, 同时HttpData包含定时器相关, 用weak_ptr
 class TimerNode {
 public:
     TimerNode(SP_HttpData requestHttpData, int timeout);

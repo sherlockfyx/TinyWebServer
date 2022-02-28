@@ -4,16 +4,16 @@
 
 // 声明当前线程的相关信息
 namespace CurrentThread {
-    extern thread_local size_t             cacheTid;
+    extern thread_local pid_t              cacheTid;
     extern thread_local char               tidString[32];
     extern thread_local int                tidLength;
-    extern thread_local std::string        threadName;
+    extern thread_local const char*        threadName;
     
     void setCacheTid();
 
-    inline size_t getCacheTid() {
+    inline pid_t getCacheTid() {
         if(cacheTid == 0) {
-            setCacheTid();
+            CurrentThread::setCacheTid();
         }
         return cacheTid;
     }
@@ -30,3 +30,4 @@ namespace CurrentThread {
         return threadName;
     }
 }
+

@@ -6,41 +6,41 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #include "CurrentThread.h"
 #include "CountDownLatch.h"
 #include "noncopyable.h"
 #include "../config.h"
 
+// 构造函数只初始化调用函数, start才开始线程执行
 
 class Thread : noncopyable {
 public:
     //常左值引用可以指向右值
     explicit Thread(const ThreadFunc& func, const std::string& name = std::string());
-    ~Thread();
+    ~Thread()= default;
 
     void start();
-    
-    void join();
 
     bool isStarted() const { return started_; }
 
-    std::thread::id getTid() const {return tid_; }
+    pid_t getTid() const {return tid_; }
 
     std::string getName() const {return name_; }
 
-private:
+public:
     void setDefaultName();
 
-    bool started_;
-    bool joined_;   
-
-    std::thread thread_;
-    // 线程局部信息
-    size_t tid_;
+    bool started_;  
     ThreadFunc func_;
-    std::string name_;
 
+    // 线程局部信息
+    pid_t tid_;
+    std::string name_;
+    // std::mutex mutex_;
+    // std::condition_variable cond_;
     CountDownLatch latch_;  //门闩
 };
 

@@ -22,7 +22,8 @@ Epoll::~Epoll() {
 void Epoll::epoll_add(SP_Channel request, int timeout) {
     int fd = request->getFd();
     if(timeout > 0) {   //添加定时器
-        
+        addTimer(request, timeout);
+        fdHttp_[fd] = request->getHolder();
     }
     struct epoll_event ev;
     bzero(&ev, sizeof(ev));
@@ -41,7 +42,7 @@ void Epoll::epoll_add(SP_Channel request, int timeout) {
 
 void Epoll::epoll_mod(SP_Channel request, int timeout) {    
     if(timeout > 0) {   //添加定时器
-        //add_timer(request, timeout);
+        addTimer(request, timeout);
     }
     int fd = request->getFd();
     //如果事件未发生改变， 直接返回
@@ -76,14 +77,14 @@ std::vector<SP_Channel> Epoll::poll() {
     std::vector<SP_Channel> activeChannels;
     int nfds = epoll_wait(epollFd_, eEvents_.data(), eEvents_.size(), EPOLLWAIT_TIME);
     if(nfds < 0) {
-        perror("epoll wait error!");
+        //perror("epoll wait error!");
     } else {    
         for(int i = 0; i < nfds; i++) {
             int fd = eEvents_[i].data.fd;
             SP_Channel activeChannel = fdChan_[fd];
             if(activeChannel) {
                 activeChannel->setRevents(eEvents_[i].events);
-                //set 0;
+                activeChannel->setEvents(0);
                 activeChannels.push_back(activeChannel);
             } else {
                 perror("activeChannel is invaid!");

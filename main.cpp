@@ -7,7 +7,7 @@
 
 int main(int argc, char *argv[]) {
     //自动获取线程数
-    int threadNum = std::thread::hardware_concurrency();
+    int threadNum = 4;//std::thread::hardware_concurrency();
     int port = 8000;
 
     std::cout << "threadNum: " << threadNum << ", port: " << port << std::endl;

@@ -16,15 +16,15 @@ TimerNode::TimerNode(const TimerNode& timerNode) {
     requestHttpData_ = timerNode.requestHttpData_;
 }
 
-// ? ? ?
+//析构函数如何处理?????
 TimerNode::~TimerNode() {
     if(requestHttpData_) {
-        //requestHttpData_->handleClose();
+        requestHttpData_->handleClose(); //Httpdata相关
     }
 }
 
 void TimerNode::update(int timeout) {
-    // ? ? ?
+    //  更新定时器时间
     struct timeval now;
     gettimeofday(&now, nullptr);
     expiredTime_ = (((now.tv_sec % 10000) * 1000) + (now.tv_usec / 1000)) + timeout;
@@ -43,20 +43,22 @@ bool TimerNode::isValid() {
     }
 }
 
-//释放HttpData, 节点还在队列中 reset 指针计数减一
+//  HttpData对象由Server创建
+//  释放HttpData, 节点还在队列中 reset 指针计数减一, TimerNode状态为删除
 void TimerNode::clear() {
-    requestHttpData_.reset();  
+    requestHttpData_.reset(); 
     setDeleted();   
 }
 
 //TimerManager
+
+
 // 定时器节点在此创建
 void TimerManager::addTimer(SP_HttpData requestHttpData, int timeout) {
     SP_TimerNode newNode = std::make_shared<TimerNode> (requestHttpData, timeout);
     timerNodeQueue_.push(newNode);
-    // 与HTTPData 建立连接 
-
-    
+    // 定时器节点已经管理了HttpData, 现在在HttpData中设置上级TimerNode
+    requestHttpData->setTimer(newNode);
 }
 
 // 处理过期事件
