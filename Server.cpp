@@ -6,13 +6,10 @@
 #include <arpa/inet.h>
 #include <cstring>
 
-
-
 /*
 1.只有一个事件循环线程池，由服务器创建unique_ptr
 
 2.封装监听文件描述符acceptChannel, 设置非阻塞
-
 
 */
 
@@ -23,12 +20,10 @@ Server::Server(EventLoop *loop, int threadNum, int port):
     started_(false),
     acceptChannel_(std::make_shared<Channel>(loop_)),
     port_(port),
-    listenFd_(socket_bind_listen(port_)) {
+    listenFd_(socketBindListen(port_)) {
 
     acceptChannel_->setFd(listenFd_);
-
     handle_for_sigpipe();
-
     if(setSocketNonBlocking(listenFd_) < 0) {
         perror("set socket nonblocking failed");
         abort();
@@ -37,12 +32,8 @@ Server::Server(EventLoop *loop, int threadNum, int port):
 
 /*
 1.服务器启动, 将线程池启动
-
-2.设置acceptChannel, 注册到epoll, 设置flag
-
+2.设置acceptChannel对应事件处理函数, 注册到epoll, 设置flag
 */
-
-
 void Server::start() {
     eventLoopThreadPool_->start();
     acceptChannel_->setEvents(EPOLLIN | EPOLLET);
@@ -56,11 +47,8 @@ void Server::start() {
     started_ = true;
 }
 
-
-
-
-
-void Server::handNewConn() {    //主线程 ，处理新连接
+//主线程 ，处理新连接
+void Server::handNewConn() {    
     struct sockaddr_in client_addr;
     memset(&client_addr, 0, sizeof(struct sockaddr_in));
     socklen_t client_addr_len = sizeof(client_addr);
@@ -68,13 +56,12 @@ void Server::handNewConn() {    //主线程 ，处理新连接
     while((connfd = accept(listenFd_, (struct sockaddr*)&client_addr, &client_addr_len)) > 0) {
         //subReactor
         EventLoop *loop = eventLoopThreadPool_->getNextLoop();
-        //std::cout<<"Connect: " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port)<<std::endl;
+        std::cout<<"Connect: " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port)<<std::endl;
 
         if(connfd >= MAXFDS) {
             close(connfd);
             continue;
         }
-
         if(setSocketNonBlocking(connfd) < 0) {
             std::cout<< "set Non Blocking failed"<<std::endl;
             return;

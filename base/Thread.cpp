@@ -72,7 +72,7 @@ void Thread::start() {
         } else {
             CurrentThread::threadName = this->name_.c_str();
         }
-        std::cout<<CurrentThread::cacheTid<<std::endl;
+        std::cout<<CurrentThread::cacheTid<<" : "<<CurrentThread::threadName<<std::endl;
         this->func_();
         CurrentThread::threadName = "Finished";  
     });

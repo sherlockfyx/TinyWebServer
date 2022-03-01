@@ -25,8 +25,7 @@ public:
     void setDeleted() {deleted_ = true; }
     bool isDeleted() const {return deleted_; }
     size_t getExpTime() const {return expiredTime_; }
-
-
+    
 private:
     bool deleted_;
     size_t expiredTime_;

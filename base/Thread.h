@@ -39,8 +39,6 @@ public:
     // 线程局部信息
     pid_t tid_;
     std::string name_;
-    // std::mutex mutex_;
-    // std::condition_variable cond_;
     CountDownLatch latch_;  //门闩
 };
 

@@ -1,5 +1,5 @@
 CC=g++
-CCFLAGS= -std=c++14 -g -O3 -Wall -D_PTHREADS # -finput-charset=UTF-8 -fexec-charset=UTF-8 #-static
+CCFLAGS= -std=c++14 -g -O3 -Wall -D_PTHREADS
 CCLINK=-lpthread
 
 #	Source and Objects 
@@ -21,6 +21,7 @@ all: $(MAIN_TARGET)
 
 $(MAIN_TARGET):$(OBJECTS) main.o
 	$(CC) $(CCFLAGS) -o $@ $^ $(CCLINK) 
+	rm $^
 
 main.o: main.cpp 
 	$(CC) $(CCFLAGS) -c -o $@ $^

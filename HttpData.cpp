@@ -12,13 +12,11 @@
 #include <string>
 
 
-pthread_once_t MimeType::once_control = PTHREAD_ONCE_INIT;
+std::once_flag MimeType::flag_;
 std::unordered_map<std::string, std::string> MimeType::mime;
 
-const uint32_t DEFALT_EVENT = EPOLLIN | EPOLLET | EPOLLONESHOT;
-const int DEFAULT_EXPIRED_TIME = 2000; // ms 
-const int DEFAULT_KEEP_ALIVE_TIME = 5 * 60 * 1000; // ms 5min
 
+// 图标
 char favicon[555] = {
   '\x89', 'P', 'N', 'G', '\xD', '\xA', '\x1A', '\xA',
   '\x0', '\x0', '\x0', '\xD', 'I', 'H', 'D', 'R',
@@ -111,7 +109,7 @@ void MimeType::init() {
 
 //返回媒体类型
 std::string MimeType::getMime(const std::string &suffix) {
-    pthread_once(&once_control, MimeType::init);
+    std::call_once(MimeType::flag_, MimeType::init);
     if(mime.find(suffix) == mime.end()) {
         return mime["default"];
     } else {
@@ -121,30 +119,32 @@ std::string MimeType::getMime(const std::string &suffix) {
 
 
 //构造函数
-// 创建 confdChannel, 绑定Httpdata事件
+// 创建confdChannel, 绑定Httpdata事件
 HttpData::HttpData(EventLoop *loop, int connfd):
     loop_(loop),
-    channel_(std::make_shared<Channel>(loop, connfd)),
-    fd_(connfd),
+    connChannel_(std::make_shared<Channel>(loop, connfd)),
+    connFd_(connfd),
     error_(false),
-    connectionState_(H_CONNECTED),  //已连接
+    nowReadPos_(0),
+    keepAlive_(false),
     method_(METHOD_GET),            //GET
     HTTPVersion_(HTTP_11),          //1.1
-    nowReadPos_(0),
     state_(STATE_PARSE_URI),
     hState_(H_START),
-    keepAlive_(false) {             //短链接
-    channel_->setReadHandler([this](){
-        this->handleRead(); //httpData handleRead()
+    connectionState_(H_CONNECTED) { 
+    //设置connfdChannel的事件处理函数  
+    connChannel_->setReadHandler([this](){
+        this->handleRead(); 
     });
-    channel_->setWriteHandler([this]{
+    connChannel_->setWriteHandler([this]{
         this->handleWrite();
     });
-    channel_->setConnHandler([this](){
+    connChannel_->setConnHandler([this](){
         this->handleConn();
     });
 }
 
+//重置
 void HttpData::reset() {
     fileName_.clear();
     path_.clear();
@@ -159,6 +159,7 @@ void HttpData::reset() {
     }
 }
 
+//分离定时器
 void HttpData::seperateTimer() {
     if(timer_.lock()) {
         SP_TimerNode my_timer(timer_.lock());
@@ -166,13 +167,28 @@ void HttpData::seperateTimer() {
         timer_.reset();
     }
 }
-//处理通信描述符的读事件
+
+// 在定时器析构的时候调用
+void HttpData::handleClose() {
+    connectionState_ = H_DISCONNECTED; //断开连接
+    //SP_HttpData guard(shared_from_this());
+    loop_->removeFromPoller(connChannel_);//文件描述符最后由~HttpData关闭
+}
+
+// 将connfd对应的channel注册到epoll中EPOLLIN
+void HttpData::newEvent() {     //子线程执行
+    connChannel_->setEvents(DEFALT_EVENT);  //默认事件oneshot
+    loop_->addToPoller(connChannel_, DEFAULT_EXPIRED_TIME); //定时器，两秒
+}
+
+
+// 处理通信描述符的读事件
 void HttpData::handleRead() {
     //监听的事件
-    uint32_t &events_ = channel_->getEvents(); //获得注册监听的事件
+    uint32_t &events_ = connChannel_->getEvents(); //获得注册监听的事件
     do {
         bool isClosed = false;
-        int read_num = readn(fd_, inBuffer_, isClosed);
+        int read_num = readn(connFd_, inBuffer_, isClosed);
         //LOG << "\nRequest: \n" << inBuffer_;    //打印请求
         if(connectionState_ == H_DISCONNECTING) {
             inBuffer_.clear();
@@ -182,7 +198,7 @@ void HttpData::handleRead() {
         if(read_num < 0) {  //会小于0？
             perror("handleRead: 1");
             error_ = true;
-            handleError(fd_, 400, "Bad Request");
+            handleError(connFd_, 400, "Bad Request");
             break;
         } else if(isClosed) {
             connectionState_ = H_DISCONNECTING;
@@ -199,7 +215,7 @@ void HttpData::handleRead() {
                 perror("HTTP Request Headers Error: ");
                 inBuffer_.clear();
                 error_ = true;
-                handleError(fd_, 400, "Bad Request");
+                handleError(connFd_, 400, "Bad Request");
                 break;
             } else {
                 state_ = STATE_PARSE_HEADERS;
@@ -213,7 +229,7 @@ void HttpData::handleRead() {
             } else if(flag == PARSE_HEADER_ERROR) {
                 perror("handleRead: 3");
                 error_ = true;
-                handleError(fd_, 400, "Bad Request");
+                handleError(connFd_, 400, "Bad Request");
                 break;
             } 
             if(method_ == METHOD_POST) {
@@ -229,7 +245,7 @@ void HttpData::handleRead() {
                 content_length = stoi(headers_["Content-length"]);
             } else {
                 error_ = true;
-                handleError(fd_, 400, "Bad Request: lost of Content-length");
+                handleError(connFd_, 400, "Bad Request: lost of Content-length");
                 break;
             }
             if(static_cast<int>(inBuffer_.size()) < content_length) 
@@ -266,11 +282,11 @@ void HttpData::handleRead() {
     }
 }
 
-// 处理写
+// 处理通信描述符的写事件
 void HttpData::handleWrite() {
     if(!error_ && connectionState_ != H_DISCONNECTED) {
-        uint32_t &events_ = channel_->getEvents();
-        if(writen(fd_, outBuffer_) < 0) {
+        uint32_t &events_ = connChannel_->getEvents();
+        if(writen(connFd_, outBuffer_) < 0) {
             perror("handleWrite: writen");
             events_ = 0;
             error_ = true;
@@ -280,10 +296,10 @@ void HttpData::handleWrite() {
     }
 }
 
-//处理通信连接
+// 处理通信描述符的连接事件
 void HttpData::handleConn() {
     seperateTimer();
-    uint32_t &events_ = channel_->getEvents();
+    uint32_t &events_ = connChannel_->getEvents();
     if(!error_ && connectionState_ == H_CONNECTED) {
         if(events_ != 0) {
             int timeout = DEFAULT_EXPIRED_TIME;
@@ -294,15 +310,15 @@ void HttpData::handleConn() {
                 events_ |= EPOLLOUT;
             }
             events_ |= EPOLLET;
-            loop_->updatePoller(channel_, timeout);
+            loop_->updatePoller(connChannel_, timeout);
         } else if(keepAlive_) {
             events_ |= (EPOLLIN | EPOLLET);
             int timeout = DEFAULT_KEEP_ALIVE_TIME;
-            loop_->updatePoller(channel_, timeout);
+            loop_->updatePoller(connChannel_, timeout);
         } else {
             events_ |= (EPOLLIN | EPOLLET);
             int timeout = (DEFAULT_KEEP_ALIVE_TIME >> 1);
-            loop_->updatePoller(channel_, timeout);
+            loop_->updatePoller(connChannel_, timeout);
         }
     } else if(!error_ && connectionState_ == H_DISCONNECTING && (events_ & EPOLLOUT)) {
         events_ = (EPOLLOUT | EPOLLET);
@@ -311,6 +327,30 @@ void HttpData::handleConn() {
     }
 }
 
+// 处理通信描述符的连接事件
+void HttpData::handleError(int fd, int err_num, std::string short_msg) {
+    short_msg = " " + short_msg;
+    char send_buff[4 * 1024];
+    std::string body_buff, header_buff;
+    body_buff += "<html><title>QAQ ERROR!</title>";
+    body_buff += "<body bgcolor=\"ffffff\">";
+    body_buff += std::to_string(err_num) + short_msg;
+    body_buff += "<hr><em> Fangyx's Web </em>\n</body></html>";
+
+    header_buff += "HTTP/1.1 " + std::to_string(err_num) + short_msg + "\r\n";
+    header_buff += "Content-Type: text/html\r\n";
+    header_buff += "Connection: Close\r\n";
+    header_buff += "Content-Length: " + std::to_string(body_buff.size()) + "\r\n";
+    header_buff += "\r\n";
+
+    sprintf(send_buff, "%s", header_buff.c_str());
+    writen(fd, send_buff, strlen(send_buff));
+    sprintf(send_buff, "%s", body_buff.c_str());
+    writen(fd, send_buff, strlen(send_buff));
+}
+
+
+//Http报文解析
 URIState HttpData::parseURI() { //解析请求头
     std::string &str = inBuffer_;
     //std::string cop = str;
@@ -510,12 +550,12 @@ AnalysisState HttpData::analysisRequest() { //分析请求
         }
         if(fileName_ == "favicon.ico") {
             header += "Content-type: image/png\r\n";
-            header += "Content-length: " + std::to_string(sizeof favicon) + "\r\n";
-            header += "Server: Fangyx Web";
+            header += "Content-length: " + std::to_string(sizeof(favicon)) + "\r\n";
+            //header += "Server: Fangyx Web";
 
             header += "\r\n";
             outBuffer_ += header;
-            outBuffer_ += std::string(favicon, favicon + sizeof favicon);
+            outBuffer_ += std::string(favicon, favicon + sizeof(favicon));
             return ANALYSIS_SUCCESS;
         }
         // end of test 
@@ -524,7 +564,7 @@ AnalysisState HttpData::analysisRequest() { //分析请求
         struct stat sbuf;
         if(stat(fileName_.c_str(), &sbuf) < 0) {
             header.clear();
-            handleError(fd_, 404, "NOT FOUND!");
+            handleError(connFd_, 404, "NOT FOUND!");
             return ANALYSIS_ERROR;
         }
         header += "Content-type: " + filetype + "\r\n";
@@ -540,7 +580,7 @@ AnalysisState HttpData::analysisRequest() { //分析请求
         int src_fd = open(fileName_.c_str(), O_RDONLY, 0);
         if(src_fd < 0) {
             outBuffer_.clear();
-            handleError(fd_, 404, "NOT FOUND!");
+            handleError(connFd_, 404, "NOT FOUND!");
             return ANALYSIS_ERROR;
         }
         void *mmapRet = mmap(nullptr, sbuf.st_size, PROT_READ, MAP_PRIVATE, src_fd, 0);
@@ -548,7 +588,7 @@ AnalysisState HttpData::analysisRequest() { //分析请求
         if(mmapRet == (void *)(-1)) {
             munmap(mmapRet, sbuf.st_size);
             outBuffer_.clear();
-            handleError(fd_, 404, "NOT FOUND!");
+            handleError(connFd_, 404, "NOT FOUND!");
             return ANALYSIS_ERROR;
         }
         char *src_addr = static_cast<char *>(mmapRet);
@@ -557,40 +597,4 @@ AnalysisState HttpData::analysisRequest() { //分析请求
         return ANALYSIS_SUCCESS;
     }
     return ANALYSIS_ERROR;
-}
-
-//处理错误
-void HttpData::handleError(int fd, int err_num, std::string short_msg) {
-    short_msg = " " + short_msg;
-    char send_buff[4 * 1024];
-    std::string body_buff, header_buff;
-    body_buff += "<html><title>QAQ ERROR!</title>";
-    body_buff += "<body bgcolor=\"ffffff\">";
-    body_buff += std::to_string(err_num) + short_msg;
-    body_buff += "<hr><em> Fangyx's Web </em>\n</body></html>";
-
-    header_buff += "HTTP/1.1 " + std::to_string(err_num) + short_msg + "\r\n";
-    header_buff += "Content-Type: text/html\r\n";
-    header_buff += "Connection: Close\r\n";
-    header_buff += "Content-Length: " + std::to_string(body_buff.size()) + "\r\n";
-    header_buff += "\r\n";
-
-    sprintf(send_buff, "%s", header_buff.c_str());
-    writen(fd, send_buff, strlen(send_buff));
-    sprintf(send_buff, "%s", body_buff.c_str());
-    writen(fd, send_buff, strlen(send_buff));
-}
-
-
-void HttpData::handleClose() {
-    connectionState_ = H_DISCONNECTED;
-    SP_HttpData guard(shared_from_this());
-    loop_->removeFromPoller(channel_);
-}
-
-
-//将 connfd对应的channel注册到epoll中
-void HttpData::newEvent() {     //子线程执行
-    channel_->setEvents(DEFALT_EVENT);//默认事件 oneshot
-    loop_->addToPoller(channel_, DEFAULT_EXPIRED_TIME);//定时器，两秒
 }

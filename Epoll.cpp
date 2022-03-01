@@ -18,7 +18,6 @@ Epoll::~Epoll() {
     close(epollFd_);
 }
 
-
 void Epoll::epoll_add(SP_Channel request, int timeout) {
     int fd = request->getFd();
     if(timeout > 0) {   //添加定时器
@@ -58,6 +57,7 @@ void Epoll::epoll_mod(SP_Channel request, int timeout) {
     }
 }
 
+// 过期的connfdChannel才会删除, 同时对应的HttpData也会删除,关闭connfd
 void Epoll::epoll_del(SP_Channel request) {       
     int fd = request->getFd();
     struct epoll_event ev;
@@ -69,7 +69,7 @@ void Epoll::epoll_del(SP_Channel request) {
         perror("epoll_del error!");
     }
     fdChan_[fd].reset();    
-    fdHttp_[fd].reset();    //如果有的话connfdChannel
+    fdHttp_[fd].reset();    
 }
 
 //返回活跃Channel集合
@@ -108,5 +108,3 @@ void Epoll::addTimer(SP_Channel request, int timeout) {
         perror("timer add failed!");
     }
 }
-
-

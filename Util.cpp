@@ -9,7 +9,7 @@
 
 #include "Util.h"
 
-const int MAX_BUF = 4096;
+
 
 ssize_t readn(int fd, void *buf, size_t n) {//一次读完
     size_t nleft = n;
@@ -172,7 +172,7 @@ void shurDownWR(int fd) {
     shutdown(fd, SHUT_WR);
 }
 
-int socket_bind_listen(int port) {
+int socketBindListen(int port) {
 
     int listen_fd = 0;
     if((listen_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
